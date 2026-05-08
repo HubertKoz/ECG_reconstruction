@@ -59,11 +59,11 @@ class IEEEMixin:
                                 continue
 
             # Wyświetlenie metadanych
-            print("Nagłówek pliku:")
-            for hl in header_content:
-                print(f"  {hl}")
+            # print("Nagłówek pliku:")
+            # for hl in header_content:
+            #     print(f"  {hl}")
             
-            print(f"Wykryto {len(sensor_names)} sensorów: {', '.join(sensor_names)}")
+            # print(f"Wykryto {len(sensor_names)} sensorów: {', '.join(sensor_names)}")
             
             # Wczytanie danych (skiprows pomija wszystko do tagu [DATA] włącznie)
             df = pd.read_csv(full_path, sep=r'\s+', header=None, skiprows=data_start_line, names=sensor_names)

@@ -12,6 +12,43 @@ class DataLoader(BaseLoader, IEEEMixin, ZenodoMixin, PhysioNetMixin):
     def __init__(self, base_data_dir: str = "./data"):
         super().__init__(base_data_dir)
 
+    def load_all_datasets(self, format=True):
+        """
+        Pobiera i przygotowuje do dalszej obróbki wszystkie dostępne rekordy ze wszystkich zbiorów.
+        Zwraca słownik, gdzie klucze to nazwy zbiorów, a wartości to listy ramek danych (pd.DataFrame).
+        """
+        print("Rozpoczynanie ładowania wszystkich zbiorów danych...")
+        datasets = {
+            'ieee': [],
+            'zenodo': [],
+            'physionet': []
+        }
+        
+        # 1. IEEE DataPort
+        print(f" -> Ładowanie IEEE ({len(self.list_ieee())} rekordów)")
+        for record in self.list_ieee():
+            df = self.load_ieee(record=record, format=format)
+            if df is not None:
+                datasets['ieee'].append(df)
+        
+        # 2. Zenodo / Shimmer
+        print(f" -> Ładowanie Zenodo ({len(self.list_zenodo())} rekordów)")
+        for record in self.list_zenodo():
+            df = self.load_zenodo(record=record, format=format)
+            if df is not None:
+                datasets['zenodo'].append(df)
+                
+        # 3. PhysioNet
+        print(f" -> Ładowanie PhysioNet ({len(self.list_physionet())} rekordów)")
+        for record in self.list_physionet():
+            # format=True dla PhysioNet zwraca DataFrame resampled do 256Hz
+            df = self.load_physionet(record=record, format=format)
+            if df is not None:
+                datasets['physionet'].append(df)
+                
+        print("Ładowanie zakończone.")
+        return datasets
+
 
 if __name__ == "__main__":
     # Testowy punkt wejścia do weryfikacji architektury

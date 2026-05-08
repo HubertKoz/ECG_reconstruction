@@ -63,9 +63,9 @@ results = pre.process_pipeline(df)
 print(f"Załadowano rekord {record_name} i wagi modeli globalnych (z poprawką na długość okna).")"""))
 
 nb.cells.append(nbf.v4.new_code_cell("""# Przygotowanie sygnałów
-scg_full = results['scg_kaisti']
-pcg_full = results['gcg_kaisti']
-ecg_full = results['ecg_kaisti']
+scg_full = results['scg_final']
+pcg_full = results['gcg_final']
+ecg_full = results['ecg_final']
 fs = 256
 clean_mask = results['clean_mask']
 epoch_sec = 10

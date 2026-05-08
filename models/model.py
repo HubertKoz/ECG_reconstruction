@@ -23,7 +23,7 @@ class ECGReconstructionModel(nn.Module):
         
         # positional encoding (uproszczony jako wyuczalny parametr)
         # W artykule użyto sinusoid, tutaj dla czytelności użyjemy Embeddingu
-        self.pos_embedding = nn.Parameter(torch.randn(1, 4000, hidden_dim)) 
+        self.pos_embedding = nn.Parameter(torch.randn(1, 1000, hidden_dim)) 
         
         encoder_layer = nn.TransformerEncoderLayer(
             d_model=hidden_dim, 
@@ -178,9 +178,9 @@ if __name__ == "__main__":
     results = pre.process_pipeline(signals_df)
 
     # Ekstrakcja znormalizowanych sygnałów (Model używa pcg i scg, mapujemy GCG na pcg dla fuzji)
-    scg_channel = results['scg_kaisti']
-    pcg_channel = results['gcg_kaisti']
-    ecg_channel = results['ecg_kaisti']
+    scg_channel = results['scg_final']
+    pcg_channel = results['gcg_final']
+    ecg_channel = results['ecg_final']
 
     # Przygotowanie maski do odrzucania okien z szumem
     clean_mask = results['clean_mask']

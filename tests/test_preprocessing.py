@@ -82,7 +82,7 @@ def run_preprocessing_tests():
                         # Ogranicz dane do plotu
                         scg_f = results['scg_f']
                         scg_d = results['scg_d']
-                        scg_k = results['scg_kaisti']
+                        scg_k = results['scg_final']
                         
                         plot_len = min(samples_to_plot, len(scg_raw))
                         time_axis = time_axis[:plot_len]

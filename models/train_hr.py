@@ -83,9 +83,9 @@ def main():
             
         try:
             results = pre.process_pipeline(signals_df)
-            scg_channel = results['scg_kaisti']
-            pcg_channel = results['gcg_kaisti']  
-            ecg_channel = results['ecg_kaisti']
+            scg_channel = results['scg_final']
+            pcg_channel = results['gcg_final']  
+            ecg_channel = results['ecg_final']
             clean_mask = results['clean_mask']
             
             n_samples_epoch = int(results['epoch_sec'] * fs)

@@ -4,7 +4,7 @@ import os
 
 # Importy z istniejących skryptów
 from models.train_global import main as train_ecg_model
-from evaluate_model import evaluate_and_plot
+from evaluation import evaluate_reconstruction_pipeline
 
 def main():
     parser = argparse.ArgumentParser(description="Główny skrypt uruchamiający pipeline rekonstrukcji EKG (Model Ogólny)")
@@ -12,6 +12,7 @@ def main():
     parser.add_argument('--train', action='store_true', help="Uruchamia trenowanie modelu rekonstrukcji EKG")
     parser.add_argument('--eval', action='store_true', help="Uruchamia ewaluację wytrenowanego modelu rekonstrukcji EKG")
     parser.add_argument('--all', action='store_true', help="Uruchamia cały pipeline: trenowanie, a następnie ewaluację")
+    parser.add_argument('--info', action='store_true', help="Wyświetla informację o wszystkich dostępnych zbiorach danych i ładuje je do pamięci")
     
     parser.add_argument('--model_path', type=str, default='models/global_best_ecg_model.pth', help="Ścieżka do pliku z wagami modelu (używane przy ewaluacji)")
     parser.add_argument('--eval_record', type=str, default='CP-01', help="Nazwa rekordu do ewaluacji (np. 'CP-01' z Zenodo lub 'sub_1' z IEEE)")
@@ -28,7 +29,7 @@ def main():
     if args.all:
         args.train = True
         args.eval = True
-
+    
     if args.train:
         print("="*60)
         print(" ROZPOCZYNANIE TRENINGU MODELU REKONSTRUKCJI EKG")
@@ -47,8 +48,27 @@ def main():
             print("Najpierw musisz wytrenować model, np. używając flagi --train lub --all.")
             sys.exit(1)
             
-        evaluate_and_plot(model_path=args.model_path, record=args.eval_record, num_samples=args.eval_samples)
+        # Wywołanie nowej funkcji z pakietu evaluation
+        evaluate_reconstruction_pipeline(
+            model_path=args.model_path, 
+            record=args.eval_record, 
+            num_samples=args.eval_samples
+        )
         print("\n[INFO] Ewaluacja zakończona.\n")
+
+    if args.info:
+        from data_loader import DataLoader
+        print("="*60)
+        print(" INFORMACJE O ZBIORACH DANYCH")
+        print("="*60)
+        loader = DataLoader()
+        all_data = loader.load_all_datasets()
+        
+        print("\nPodsumowanie wczytanych danych:")
+        for ds_name, dfs in all_data.items():
+            total_rows = sum([len(df) for df in dfs])
+            print(f" - {ds_name.upper():<10}: {len(dfs):>3} rekordów, łącznie {total_rows:>10} próbek")
+        print("="*60)
 
 if __name__ == "__main__":
     main()

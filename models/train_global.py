@@ -60,88 +60,36 @@ def main():
     loader = ECGDataLoader()
     pre = Preprocessor(fs=256)
     
-    # Listowanie wszystkich rekordów dla każdego datasetu
-    records_ieee = loader.list_ieee()
-    records_zenodo = loader.list_zenodo()
+    print("========== Wczytywanie wszystkich dostępnych zbiorów danych ==========")
+    all_dfs_dict = loader.load_all_datasets()
     
-    valid_scg_all, valid_pcg_all, valid_ecg_all = [], [], []
+    # Łączymy wszystkie ramki danych w jedną listę do globalnego balansowania rekordów
+    all_dfs = []
+    for ds_name in all_dfs_dict:
+        all_dfs.extend(all_dfs_dict[ds_name])
     
-    seq_len = 250
-    fs = 256
-    
-    def normalize_window(x):
-        """Per-window z-score normalizacja (zamiast globalnej z zerami)."""
-        std = np.std(x)
-        if std < 1e-8:
-            return None  # okno jest stałe (same zera lub brak zmienności) - odrzuć
-        return (x - np.mean(x)) / std
-    
-    # Funkcja pomocnicza do przetwarzania i zrzucania okien do wspólnej puli
-    def process_and_aggregate_df(signals_df):
-        if signals_df is None or signals_df.empty:
-            return
-            
-        try:
-            results = pre.process_pipeline(signals_df)
-            # Używamy przefiltrowanych (ale NIE zróżniczkowanych) sygnałów
-            scg_channel = results['scg_f']
-            pcg_channel = results['gcg_f']
-            ecg_channel = results['ecg_kaisti']  # EKG z z-score jest OK (nie ma zerowania)
-            clean_mask = results['clean_mask']
-            
-            n_samples_epoch = int(results['epoch_sec'] * fs)
-            n_samples_total = len(scg_channel)
-            n_windows = n_samples_total // seq_len
-            
-            for i in range(n_windows):
-                start = i * seq_len
-                end = start + seq_len
-                
-                epoch_start = start // n_samples_epoch
-                epoch_end = (end - 1) // n_samples_epoch
-                
-                # Zabezpieczenie przed epokami poza maską i odrzucenie zepsutych okien szumowych
-                if epoch_start < len(clean_mask) and epoch_end < len(clean_mask):
-                    if clean_mask[epoch_start] and clean_mask[epoch_end]:
-                        # Per-window normalizacja zamiast globalnej
-                        scg_win = normalize_window(scg_channel[start:end])
-                        pcg_win = normalize_window(pcg_channel[start:end])
-                        ecg_win = normalize_window(ecg_channel[start:end])
-                        
-                        # Odrzucamy okna, w których którykolwiek kanał jest stały
-                        if scg_win is not None and pcg_win is not None and ecg_win is not None:
-                            valid_scg_all.append(scg_win)
-                            valid_pcg_all.append(pcg_win)
-                            valid_ecg_all.append(ecg_win)
-        except Exception as e:
-            print(f"Błąd podczas przetwarzania potoku Kaisti: {e}")
-
-    print("========== Rozpoczęcie ładowania i przetwarzania danych IEEE ==========")
-    for rec in records_ieee:
-        print(f" -> Rekord IEEE: {rec}")
-        df = loader.load_ieee(record=rec, format=True)
-        if df is not None:
-            process_and_aggregate_df(df)
-
-    print("\n========== Rozpoczęcie ładowania i przetwarzania danych Zenodo ==========")
-    for rec in records_zenodo:
-        print(f" -> Rekord Zenodo: {rec}")
-        df = loader.load_zenodo(record=rec, format=True)
-        if df is not None:
-            process_and_aggregate_df(df)
-
-    if len(valid_scg_all) == 0:
-        print("\n[BŁĄD] Nie zebrano żadnych prawidłowych okien do treningu. Upewnij się, że struktura plików jest prawidłowa.")
+    if not all_dfs:
+        print("[BŁĄD] Nie znaleziono żadnych danych do treningu.")
         return
 
-    # Zamiana ustrukturyzowanych list na wielkie Zespolone Tensory
-    real_scg = torch.tensor(np.array(valid_scg_all), dtype=torch.float32).unsqueeze(-1)
-    real_pcg = torch.tensor(np.array(valid_pcg_all), dtype=torch.float32).unsqueeze(-1)
-    real_ecg = torch.tensor(np.array(valid_ecg_all), dtype=torch.float32).unsqueeze(-1)
+    print(f"\n========== Przetwarzanie i balansowanie danych ({len(all_dfs)} rekordów) ==========")
+    # Wykorzystujemy nową funkcję balansującą z pakietu preprocessing
+    # seq_len=250 zgodnie z pierwotnym kodem
+    balanced_data = pre.aggregate_and_balance(all_dfs, seq_len=250)
+    
+    if balanced_data is None or balanced_data['scg_final'] is None:
+        print("\n[BŁĄD] Nie zebrano żadnych prawidłowych okien do treningu.")
+        return
+
+    # Zamiana zbalansowanych danych na Tensory
+    # balanced_data zawiera 'gcg_final', 'scg_final', 'ecg_final' jako numpy arrays
+    real_pcg = torch.tensor(balanced_data['gcg_final'], dtype=torch.float32).unsqueeze(-1)
+    real_scg = torch.tensor(balanced_data['scg_final'], dtype=torch.float32).unsqueeze(-1)
+    real_ecg = torch.tensor(balanced_data['ecg_final'], dtype=torch.float32).unsqueeze(-1)
 
     dataset = TensorDataset(real_pcg, real_scg, real_ecg)
     num_samples = len(dataset)
-    print(f"\n[SUKCES] Przygotowano łącznie: {num_samples} fragmentów (okien) z wszystkich zbiorów do treningu!")
+    print(f"\n[SUKCES] Przygotowano łącznie: {num_samples} zbalansowanych okien do treningu!")
     
     # Poprawny podział wymieszanych danych ze wszystkich zbiorów pacjentów
     train_size = int(0.8 * num_samples)
