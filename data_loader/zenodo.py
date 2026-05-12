@@ -92,18 +92,22 @@ class ZenodoMixin:
                 except ValueError:
                     pass
 
+            # Standardowe częstotliwości próbkowania urządzeń Shimmer
+            _STANDARD_FS = [51, 102, 128, 204, 256, 512, 1024]
             fs = 256
             if 'Timestamp' in df.columns:
                 diffs = df['Timestamp'].diff().dropna()
                 avg_diff_ms = diffs.median()
                 if avg_diff_ms > 0:
-                    fs = round(1000.0 / avg_diff_ms)
-                    print(f"   -> Wykryte próbkowanie dla {record}: {fs} Hz (Delta t: {avg_diff_ms:.2f} ms)")
+                    raw_fs = 1000.0 / avg_diff_ms
+                    # Dopasowanie do najbliższej standardowej częstotliwości
+                    fs = min(_STANDARD_FS, key=lambda x: abs(x - raw_fs))
+                    print(f"   -> Wykryte próbkowanie dla {record}: {fs} Hz (raw={raw_fs:.1f} Hz, Δt={avg_diff_ms:.2f} ms)")
                 else:
-                    print(f"   -> Ostrzeżenie: Wykryta delta Timestamp wyniosła {avg_diff_ms} ms dla {record}. Zakładam domyślne fs = 256 Hz.")
+                    print(f"   -> Ostrzeżenie: delta Timestamp = {avg_diff_ms} ms dla {record}. Zakładam 256 Hz.")
                 df.attrs['fs'] = fs
             else:
-                print(f"   -> Ostrzeżenie: Brak kolumny Timestamp w {record}. Nie można wyliczyć fs. Zakładam 256 Hz.")
+                print(f"   -> Ostrzeżenie: brak kolumny Timestamp w {record}. Zakładam 256 Hz.")
 
             desired_cols = ['SCG_X', 'SCG_Y', 'SCG_Z', 'ECG_LA_RA', 'ECG_LL_LA', 'GCG_X', 'GCG_Y', 'GCG_Z']
             target_cols = [c for c in desired_cols if c in df.columns]

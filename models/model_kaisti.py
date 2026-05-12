@@ -1,48 +1,29 @@
 from sklearn.cluster import KMeans
 import numpy as np
 
+
 class HeartbeatClusteringModel:
-    """
-    Model ML oparty na klastrowaniu (K-Means) zgodnie z metodą morfologiczną Kaisti.
-    """
+    """Model K-Means klasyfikujący szczyty SCG na uderzenia serca i szum (metoda Kaisti)."""
+
     def __init__(self, n_init=10):
-        self.model = KMeans(n_clusters=2, n_init=n_init)
+        self.model = KMeans(n_clusters=2, n_init=n_init, random_state=42)
         self.is_fitted = False
         self.cluster_centers_ = None
 
     def fit(self, heights):
-        """
-        'Trening' modelu - w K-Means to dopasowanie centrów klastrów 
-        do amplitud wykrytych szczytów.
-        """
         if len(heights) < 2:
             return None
-        
         self.model.fit(heights)
         self.cluster_centers_ = self.model.cluster_centers_
         self.is_fitted = True
         return self
 
     def predict(self, heights):
-        """
-        Klasyfikacja szczytów na 'Beat' (1) i 'Noise' (0).
-        """
         if not self.is_fitted:
             raise ValueError("Model musi być najpierw dopasowany (fit).")
-            
         labels = self.model.predict(heights)
-        # Identyfikacja klastra o wyższej amplitudzie jako bicie serca
         beat_cluster_idx = np.argmax(self.cluster_centers_)
         return (labels == beat_cluster_idx)
-
-
-
-from preprocessing import Preprocessor
-from data_loader import DataLoader
-from scipy.signal import find_peaks
-
-loader = DataLoader()
-df_ieee = loader.load_ieee(format=True)
 
 
 def validate_kaisti_method(detected_peaks, ecg_peaks, fs, window_ms=150):
@@ -82,7 +63,14 @@ def validate_kaisti_method(detected_peaks, ecg_peaks, fs, window_ms=150):
 # --- GŁÓWNA PĘTLA WYKONAWCZA ---
 
 if __name__ == "__main__":
-    # 1. Przygotowanie danych (Twoim Preprocesorem)
+    from preprocessing import Preprocessor
+    from data_loader import DataLoader
+    from scipy.signal import find_peaks
+
+    loader = DataLoader()
+    df_ieee = loader.load_ieee(format=True)
+
+    # 1. Przygotowanie danych
     kp = Preprocessor(fs=256)
     results = kp.process_pipeline(df_ieee) # Twoje dane
     

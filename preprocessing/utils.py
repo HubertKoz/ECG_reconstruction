@@ -63,9 +63,12 @@ def select_axis_manual(df, columns, target_axis='SCG_Z'):
 
 def differentiate(data):
     """
-    Obliczenie pochodnej.
+    Obliczenie pierwszej pochodnej (różnica skończona).
+    Pierwsza próbka uzupełniana jest forward-difference (data[1] - data[0]),
+    aby zachować długość sygnału bez wprowadzania stałej wartości brzegowej.
     """
-    return np.diff(data, prepend=data[0])
+    first_diff = data[1] - data[0] if len(data) > 1 else 0.0
+    return np.diff(data, prepend=data[0] - first_diff)
 
 def normalize(x):
     """

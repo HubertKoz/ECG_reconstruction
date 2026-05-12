@@ -27,7 +27,7 @@ def morphological_detection(signal, fs):
         return peaks
         
     heights = properties['peak_heights'].reshape(-1, 1)
-    kmeans = KMeans(n_clusters=2, n_init=10).fit(heights)
+    kmeans = KMeans(n_clusters=2, n_init=10, random_state=42).fit(heights)
     labels = kmeans.labels_
     
     if kmeans.cluster_centers_[0] > kmeans.cluster_centers_[1]:

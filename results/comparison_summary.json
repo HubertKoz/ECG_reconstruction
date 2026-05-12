@@ -1,0 +1,46 @@
+[
+  {
+    "pipeline": "kaisti",
+    "model": "tcn",
+    "n_params": 284417,
+    "n_windows": 200,
+    "data_source": "synthetic",
+    "epochs": 3,
+    "best_val_corr": 0.34233,
+    "best_epoch": 3,
+    "final_val_loss": 1.010343
+  },
+  {
+    "pipeline": "minimal",
+    "model": "tcn",
+    "n_params": 284417,
+    "n_windows": 200,
+    "data_source": "synthetic",
+    "epochs": 3,
+    "best_val_corr": 0.284574,
+    "best_epoch": 3,
+    "final_val_loss": 0.978355
+  },
+  {
+    "pipeline": "minimal",
+    "model": "bilstm_transformer",
+    "n_params": 2053889,
+    "n_windows": 200,
+    "data_source": "synthetic",
+    "epochs": 3,
+    "best_val_corr": 0.009231,
+    "best_epoch": 3,
+    "final_val_loss": 1.059731
+  },
+  {
+    "pipeline": "kaisti",
+    "model": "bilstm_transformer",
+    "n_params": 2053889,
+    "n_windows": 200,
+    "data_source": "synthetic",
+    "epochs": 3,
+    "best_val_corr": -0.020539,
+    "best_epoch": 2,
+    "final_val_loss": 1.125131
+  }
+]

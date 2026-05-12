@@ -2,34 +2,59 @@ import argparse
 import sys
 import os
 
-# Importy z istniejących skryptów
 from models.train_global import main as train_ecg_model
 from evaluation import evaluate_reconstruction_pipeline
 
 def main():
-    parser = argparse.ArgumentParser(description="Główny skrypt uruchamiający pipeline rekonstrukcji EKG (Model Ogólny)")
-    
-    parser.add_argument('--train', action='store_true', help="Uruchamia trenowanie modelu rekonstrukcji EKG")
-    parser.add_argument('--eval', action='store_true', help="Uruchamia ewaluację wytrenowanego modelu rekonstrukcji EKG")
-    parser.add_argument('--all', action='store_true', help="Uruchamia cały pipeline: trenowanie, a następnie ewaluację")
-    parser.add_argument('--info', action='store_true', help="Wyświetla informację o wszystkich dostępnych zbiorach danych i ładuje je do pamięci")
-    
-    parser.add_argument('--model_path', type=str, default='models/global_best_ecg_model.pth', help="Ścieżka do pliku z wagami modelu (używane przy ewaluacji)")
-    parser.add_argument('--eval_record', type=str, default='CP-01', help="Nazwa rekordu do ewaluacji (np. 'CP-01' z Zenodo lub 'sub_1' z IEEE)")
-    parser.add_argument('--eval_samples', type=int, default=3, help="Liczba próbek (okien) do wyświetlenia na wykresach ewaluacyjnych")
+    parser = argparse.ArgumentParser(description="Pipeline rekonstrukcji EKG z sygnałów SCG/GCG")
+
+    parser.add_argument('--train',   action='store_true', help="Trenowanie modelu rekonstrukcji EKG")
+    parser.add_argument('--eval',    action='store_true', help="Ewaluacja wytrenowanego modelu")
+    parser.add_argument('--all',     action='store_true', help="Trenowanie + ewaluacja")
+    parser.add_argument('--info',    action='store_true', help="Informacje o dostępnych zbiorach danych")
+    parser.add_argument('--compare', action='store_true',
+                        help="Porównanie wszystkich pipeline'ów × architektur (experiments/compare_all.py)")
+
+    parser.add_argument('--model_path',   type=str, default='models/global_best_ecg_model.pth')
+    parser.add_argument('--eval_record',  type=str, default='CP-01')
+    parser.add_argument('--eval_samples', type=int, default=3)
+
+    # Opcje dla --compare
+    parser.add_argument('--compare_epochs',     type=int, default=25,
+                        help='Liczba epok na przebieg (dla --compare)')
+    parser.add_argument('--compare_synthetic',  action='store_true',
+                        help='Użyj danych syntetycznych zamiast prawdziwych (szybki test)')
+    parser.add_argument('--compare_pipelines',  nargs='+', default=None,
+                        help='Pipeline\'y do porównania (domyślnie wszystkie)')
+    parser.add_argument('--compare_models',     nargs='+', default=None,
+                        help='Architektury do porównania (domyślnie wszystkie)')
     
     args = parser.parse_args()
-    
-    # Jeśli nie podano żadnych argumentów, domyślnie uruchom pełny pipeline (zgodnie z intencją "uruchomienia całego pipeline")
+
     if len(sys.argv) == 1:
-        print("Nie podano flag trybu. Domyślnie uruchamiam pełny pipeline (trenowanie + ewaluacja).")
-        print("Aby zobaczyć wszystkie opcje, użyj: python main.py --help\n")
+        print("Nie podano flag. Domyślnie uruchamiam pełny pipeline (trenowanie + ewaluacja).")
+        print("Opcje: --train  --eval  --all  --compare  --info  --help\n")
         args.all = True
-        
+
     if args.all:
         args.train = True
-        args.eval = True
-    
+        args.eval  = True
+
+    if args.compare:
+        print("="*60)
+        print(" PORÓWNANIE PIPELINE'ÓW × ARCHITEKTUR")
+        print("="*60)
+        from experiments.compare_all import run_comparison, PIPELINES, ARCHITECTURE_REGISTRY
+        pipe_names  = args.compare_pipelines or list(PIPELINES.keys())
+        model_names = args.compare_models    or list(ARCHITECTURE_REGISTRY.keys())
+        run_comparison(
+            pipeline_names=pipe_names,
+            model_names=model_names,
+            epochs=args.compare_epochs,
+            use_synthetic=args.compare_synthetic,
+        )
+        return
+
     if args.train:
         print("="*60)
         print(" ROZPOCZYNANIE TRENINGU MODELU REKONSTRUKCJI EKG")

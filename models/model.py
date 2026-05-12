@@ -1,141 +1,61 @@
 import torch
 import torch.nn as nn
 import numpy as np
-import pandas as pd
-from torch.utils.data import DataLoader as TorchDataLoader, TensorDataset
-from data_loader import DataLoader as ECGDataLoader
-from preprocessing import Preprocessor
+
 
 class ECGReconstructionModel(nn.Module):
     def __init__(self, input_dim=1, hidden_dim=128, nhead=8, num_layers=4):
         super(ECGReconstructionModel, self).__init__()
-        
-        # enkodery LSTM - osobne dla PCG i SCG
+
+        # Osobne enkodery BiLSTM dla PCG i SCG
         self.lstm_pcg = nn.LSTM(input_dim, hidden_dim, num_layers=2, bidirectional=True, batch_first=True, dropout=0.2)
         self.lstm_scg = nn.LSTM(input_dim, hidden_dim, num_layers=2, bidirectional=True, batch_first=True, dropout=0.2)
-        
-        # Po biLSTM hidden_dim * 2 (dwa kierunki)
+
+        # Po BiLSTM: hidden_dim * 2 kierunki * 2 sygnały = combined_dim
         combined_dim = hidden_dim * 2 * 2
-        
-        # transformer (globalny kontekst i fuzja)
-        # Warstwa liniowa mapująca na wymiar Transformera
+
+        # Projekcja na wymiar Transformera
         self.feature_projection = nn.Linear(combined_dim, hidden_dim)
-        
-        # positional encoding (uproszczony jako wyuczalny parametr)
-        # W artykule użyto sinusoid, tutaj dla czytelności użyjemy Embeddingu
-        self.pos_embedding = nn.Parameter(torch.randn(1, 1000, hidden_dim)) 
-        
+
+        # Wyuczalny positional encoding (max 1000 próbek)
+        self.pos_embedding = nn.Parameter(torch.randn(1, 1000, hidden_dim))
+
         encoder_layer = nn.TransformerEncoderLayer(
-            d_model=hidden_dim, 
-            nhead=nhead, 
-            dim_feedforward=hidden_dim * 4, 
-            dropout=0.1, 
+            d_model=hidden_dim,
+            nhead=nhead,
+            dim_feedforward=hidden_dim * 4,
+            dropout=0.1,
             batch_first=True
         )
         self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
-        
-        # 3. DEKODER MLP (Rekonstrukcja fali EKG)
+
+        # Dekoder MLP: rekonstrukcja amplitudy EKG w każdej próbce
         self.decoder = nn.Sequential(
             nn.Linear(hidden_dim, 64),
             nn.ReLU(),
-            nn.Linear(64, 1) # Wyjście to amplituda EKG w danej chwili
+            nn.Linear(64, 1)
         )
 
     def forward(self, pcg, scg):
-        # pcg, scg shape: [batch, seq_len, 1]
-        
-        # przetwarzanie przez LSTM
+        # pcg, scg: [batch, seq_len, 1]
         pcg_features, _ = self.lstm_pcg(pcg)
         scg_features, _ = self.lstm_scg(scg)
-        
-        # Fuzja cech (Concatenation)
+
         combined = torch.cat((pcg_features, scg_features), dim=2)
-        
-        # Projekcja i dodanie pozycji
         x = self.feature_projection(combined)
         x = x + self.pos_embedding[:, :x.size(1), :]
-        
-        # Transformer - tutaj model "rozmawia" między sygnałami
         x = self.transformer_encoder(x)
-        
-        # Finalna rekonstrukcja
-        output = self.decoder(x)
-        
-        return output
-
-
-def train_epoch(model, train_loader, optimizer, criterion):
-    model.train()
-    total_loss = 0
-    
-    for batch_idx, (pcg, scg, target_ecg) in enumerate(train_loader):
-        # Dane wejściowe: [batch, seq_len, 1]
-        pcg, scg, target_ecg = pcg.to(device), scg.to(device), target_ecg.to(device)
-        
-        # Zerowanie gradientów
-        optimizer.zero_grad()
-        
-        # Forward pass - rekonstrukcja EKG
-        output_ecg = model(pcg, scg)
-        
-        # Obliczanie straty MSE
-        loss = criterion(output_ecg, target_ecg)
-        
-        # Backward pass i optymalizacja
-        loss.backward()
-        optimizer.step()
-        
-        total_loss += loss.item()
-        
-    return total_loss / len(train_loader)
-
-
-def validate(model, val_loader, criterion):
-    model.eval()
-    total_loss = 0
-    all_correlations = []
-    
-    with torch.no_grad():
-        for pcg, scg, target_ecg in val_loader:
-            pcg, scg, target_ecg = pcg.to(device), scg.to(device), target_ecg.to(device)
-            output_ecg = model(pcg, scg)
-            
-            loss = criterion(output_ecg, target_ecg)
-            total_loss += loss.item()
-            
-            # Obliczanie korelacji Pearsona dla batcha (opcjonalnie dla monitorowania)
-            # Wyciągamy dane do numpy dla łatwiejszych obliczeń
-            out_np = output_ecg.cpu().squeeze(-1).numpy()
-            tar_np = target_ecg.cpu().squeeze(-1).numpy()
-            
-            # Prosta korelacja (uśredniona po batchu)
-            for i in range(out_np.shape[0]):
-                corr = np.corrcoef(out_np[i], tar_np[i])[0, 1]
-                if not np.isnan(corr):
-                    all_correlations.append(corr)
-                    
-    avg_corr = np.mean(all_correlations) if all_correlations else 0
-    return total_loss / len(val_loader), avg_corr
+        return self.decoder(x)
 
 
 if __name__ == "__main__":
-    # --- TEST MODELU ---
-    # Parametry zgodne z artykułem:
     batch_size = 16
-    seq_len = 250 # 1 sekunda przy fs=250Hz
+    seq_len = 250  # 1 sekunda przy fs=256 Hz
     model = ECGReconstructionModel()
-
-    # Przykładowe dane wejściowe (przefiltrowane i znormalizowane)
     sample_pcg = torch.randn(batch_size, seq_len, 1)
     sample_scg = torch.randn(batch_size, seq_len, 1)
-
-    # Generowanie EKG
-    reconstructed_ecg = model(sample_pcg, sample_scg)
-
-    print(f"Kształt wejściowy: {sample_pcg.shape}")
-    print(f"Kształt zrekonstruowanego EKG: {reconstructed_ecg.shape}")
-
-
+    out = model(sample_pcg, sample_scg)
+    print(f"Wejście: {sample_pcg.shape}  →  Wyjście: {out.shape}")
 
 
 

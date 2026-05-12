@@ -1,0 +1,28 @@
+{
+  "pipeline": "minimal",
+  "model": "tcn",
+  "n_params": 284417,
+  "n_windows": 200,
+  "data_source": "synthetic",
+  "epochs": 3,
+  "best_val_corr": 0.284574,
+  "best_epoch": 3,
+  "final_val_loss": 0.978355,
+  "history": {
+    "train_loss": [
+      0.981284,
+      0.937246,
+      0.91647
+    ],
+    "val_loss": [
+      1.021578,
+      0.994103,
+      0.978355
+    ],
+    "val_corr": [
+      0.23876,
+      0.254652,
+      0.284574
+    ]
+  }
+}

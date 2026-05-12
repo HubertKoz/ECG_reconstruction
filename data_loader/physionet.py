@@ -38,13 +38,18 @@ class PhysioNetMixin:
 
 
     # Adapter
-    def physionet_adapter(self, record_tuple: tuple, fs=5000) -> pd.DataFrame:
+    def physionet_adapter(self, record_tuple: tuple) -> pd.DataFrame:
         """
-        Adapter konwertujący wynik load_physionet_wfdb (Record) na pd.DataFrame.
+        Adapter konwertujący wynik load_physionet (Record) na pd.DataFrame w 256 Hz.
+        Częstotliwość próbkowania odczytywana z metadanych WFDB (record.fs).
         """
         record, _ = record_tuple
         if record is None:
             return pd.DataFrame()
-        
+
+        fs = int(record.fs) if hasattr(record, 'fs') and record.fs else 5000
         df = pd.DataFrame(record.p_signal, columns=record.sig_name)
-        return self.resample(df, fs, 256)
+
+        if fs != 256:
+            return self.resample(df, fs, 256)
+        return df

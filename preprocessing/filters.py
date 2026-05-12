@@ -19,9 +19,11 @@ def butter_bandpass_sos(data, fs, lowcut=0.5, highcut=20.0, order=3):
 
 def savitzky_golay_filter(data, window_length=11, polyorder=3):
     """
-    Filtr Savitzky-Golay (często kojarzony z rosyjską szkołą przetwarzania sygnałów dla wygładzania).
-    Dobry do zachowania kształtu szczytów.
+    Filtr Savitzky-Golay — zachowuje kształt szczytów lepiej niż zwykłe wygładzanie.
+    window_length musi być nieparzyste; jest automatycznie zwiększane o 1 jeśli parzyste.
     """
+    if window_length % 2 == 0:
+        window_length += 1
     return savgol_filter(data, window_length, polyorder)
 
 def cheby1_bandpass(data, fs, lowcut=0.5, highcut=20.0, order=3, rp=1):

@@ -1,16 +1,15 @@
 import os
+import random
 import torch
 import torch.nn as nn
 import torch.optim as optim
 import numpy as np
 from torch.utils.data import DataLoader as TorchDataLoader, TensorDataset
 
-# Zależności z Twojego projektu
 from data_loader import DataLoader as ECGDataLoader
 from preprocessing import Preprocessor
 from .model import ECGReconstructionModel
 
-# Ograniczenia ostrzeżeń
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -73,36 +72,48 @@ def main():
         return
 
     print(f"\n========== Przetwarzanie i balansowanie danych ({len(all_dfs)} rekordów) ==========")
-    # Wykorzystujemy nową funkcję balansującą z pakietu preprocessing
-    # seq_len=250 zgodnie z pierwotnym kodem
-    balanced_data = pre.aggregate_and_balance(all_dfs, seq_len=250)
-    
-    if balanced_data is None or balanced_data['scg_final'] is None:
+
+    # Stratified split na poziomie rekordów — zapobiega data leakage między pacjentami
+    random.seed(42)
+    indices = list(range(len(all_dfs)))
+    random.shuffle(indices)
+    n_val_records = max(1, int(0.2 * len(all_dfs)))
+    val_indices = set(indices[:n_val_records])
+    train_dfs = [all_dfs[i] for i in indices if i not in val_indices]
+    val_dfs   = [all_dfs[i] for i in val_indices]
+    print(f"  Rekordy treningowe: {len(train_dfs)}, walidacyjne: {len(val_dfs)}")
+
+    train_data = pre.aggregate_and_balance(train_dfs, seq_len=250)
+    val_data   = pre.aggregate_and_balance(val_dfs,   seq_len=250)
+
+    if train_data is None or train_data['scg_final'] is None:
         print("\n[BŁĄD] Nie zebrano żadnych prawidłowych okien do treningu.")
         return
+    if val_data is None or val_data['scg_final'] is None:
+        print("\n[OSTRZEŻENIE] Brak okien walidacyjnych — używam 10% danych treningowych.")
+        n_tr = len(train_data['scg_final'])
+        n_val = max(1, int(0.1 * n_tr))
+        val_data = {k: train_data[k][:n_val] if train_data[k] is not None else None for k in train_data}
+        train_data = {k: train_data[k][n_val:] if train_data[k] is not None else None for k in train_data}
 
-    # Zamiana zbalansowanych danych na Tensory
-    # balanced_data zawiera 'gcg_final', 'scg_final', 'ecg_final' jako numpy arrays
-    real_pcg = torch.tensor(balanced_data['gcg_final'], dtype=torch.float32).unsqueeze(-1)
-    real_scg = torch.tensor(balanced_data['scg_final'], dtype=torch.float32).unsqueeze(-1)
-    real_ecg = torch.tensor(balanced_data['ecg_final'], dtype=torch.float32).unsqueeze(-1)
+    def _make_dataset(d):
+        pcg = torch.tensor(d['gcg_final'], dtype=torch.float32).unsqueeze(-1)
+        scg = torch.tensor(d['scg_final'], dtype=torch.float32).unsqueeze(-1)
+        ecg = torch.tensor(d['ecg_final'], dtype=torch.float32).unsqueeze(-1)
+        return TensorDataset(pcg, scg, ecg)
 
-    dataset = TensorDataset(real_pcg, real_scg, real_ecg)
-    num_samples = len(dataset)
-    print(f"\n[SUKCES] Przygotowano łącznie: {num_samples} zbalansowanych okien do treningu!")
-    
-    # Poprawny podział wymieszanych danych ze wszystkich zbiorów pacjentów
-    train_size = int(0.8 * num_samples)
-    val_size = num_samples - train_size
-    train_dataset, val_dataset = torch.utils.data.random_split(dataset, [train_size, val_size])
+    train_dataset = _make_dataset(train_data)
+    val_dataset   = _make_dataset(val_data)
+    num_samples = len(train_dataset)
+    print(f"\n[SUKCES] Okna treningowe: {num_samples}, walidacyjne: {len(val_dataset)}")
 
     batch_size = 32
     train_loader = TorchDataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-    val_loader = TorchDataLoader(val_dataset, batch_size=batch_size, shuffle=False)
+    val_loader   = TorchDataLoader(val_dataset,   batch_size=batch_size, shuffle=False)
 
     # Diagnostyka danych przed treningiem
-    sample_pcg, sample_scg, sample_ecg = dataset[0]
-    print(f"\n[DIAG] Przykładowe okno #0:")
+    sample_pcg, sample_scg, sample_ecg = train_dataset[0]
+    print(f"\n[DIAG] Przykładowe okno treningowe #0:")
     print(f"  PCG: mean={sample_pcg.mean():.4f}, std={sample_pcg.std():.4f}, min={sample_pcg.min():.4f}, max={sample_pcg.max():.4f}")
     print(f"  SCG: mean={sample_scg.mean():.4f}, std={sample_scg.std():.4f}, min={sample_scg.min():.4f}, max={sample_scg.max():.4f}")
     print(f"  ECG: mean={sample_ecg.mean():.4f}, std={sample_ecg.std():.4f}, min={sample_ecg.min():.4f}, max={sample_ecg.max():.4f}")

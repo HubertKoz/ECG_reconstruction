@@ -3,6 +3,7 @@ from .artifacts import remove_motion_artifacts
 from .detection import envelope_detection, morphological_detection, detect_kaisti_peaks
 from .utils import select_best_axis, select_axis_pca, select_axis_manual, differentiate, normalize, extract_windows
 from .pipelines import kaisti_pipeline, aggregate_and_balance_datasets, advanced_filtering_pipeline
+from .alternative_pipelines import minimal_pipeline, wavelet_pipeline, robust_pipeline, ALTERNATIVE_PIPELINES
 
 class Preprocessor:
     """
@@ -66,21 +67,11 @@ class Preprocessor:
 
 __all__ = [
     'Preprocessor',
-    'butter_bandpass',
-    'butter_bandpass_sos',
-    'savitzky_golay_filter',
-    'cheby1_bandpass',
+    'butter_bandpass', 'butter_bandpass_sos', 'savitzky_golay_filter', 'cheby1_bandpass',
     'remove_motion_artifacts',
-    'envelope_detection',
-    'morphological_detection',
-    'detect_kaisti_peaks',
-    'select_best_axis',
-    'select_axis_pca',
-    'select_axis_manual',
-    'differentiate',
-    'normalize',
-    'extract_windows',
-    'kaisti_pipeline',
-    'aggregate_and_balance_datasets',
-    'advanced_filtering_pipeline'
+    'envelope_detection', 'morphological_detection', 'detect_kaisti_peaks',
+    'select_best_axis', 'select_axis_pca', 'select_axis_manual',
+    'differentiate', 'normalize', 'extract_windows',
+    'kaisti_pipeline', 'aggregate_and_balance_datasets', 'advanced_filtering_pipeline',
+    'minimal_pipeline', 'wavelet_pipeline', 'robust_pipeline', 'ALTERNATIVE_PIPELINES',
 ]

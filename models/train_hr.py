@@ -111,8 +111,13 @@ def main():
                         # Tworzymy maskę Gaussa z uderzeniami jako docelowe prawdopodobieństwa
                         mask = generate_beat_mask(seq_len, peaks, sigma=2.0)
                         
-                        valid_scg_all.append(scg_channel[start:end])
-                        valid_pcg_all.append(pcg_channel[start:end])
+                        # Normalizacja per-okno — spójność z inferencją w evaluation/pipelines.py
+                        scg_win = scg_channel[start:end]
+                        pcg_win = pcg_channel[start:end]
+                        scg_win = (scg_win - np.mean(scg_win)) / (np.std(scg_win) + 1e-9)
+                        pcg_win = (pcg_win - np.mean(pcg_win)) / (np.std(pcg_win) + 1e-9)
+                        valid_scg_all.append(scg_win)
+                        valid_pcg_all.append(pcg_win)
                         valid_target_masks.append(mask)
                         
         except Exception as e:

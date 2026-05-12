@@ -1,0 +1,28 @@
+{
+  "pipeline": "kaisti",
+  "model": "tcn",
+  "n_params": 284417,
+  "n_windows": 200,
+  "data_source": "synthetic",
+  "epochs": 3,
+  "best_val_corr": 0.34233,
+  "best_epoch": 3,
+  "final_val_loss": 1.010343,
+  "history": {
+    "train_loss": [
+      0.956096,
+      0.904379,
+      0.881891
+    ],
+    "val_loss": [
+      1.065032,
+      1.021857,
+      1.010343
+    ],
+    "val_corr": [
+      0.250478,
+      0.315838,
+      0.34233
+    ]
+  }
+}
