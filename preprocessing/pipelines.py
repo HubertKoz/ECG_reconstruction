@@ -125,12 +125,21 @@ def aggregate_and_balance_datasets(dfs, fs=256, pipeline_func=kaisti_pipeline, s
         if res is None:
             continue
 
-        signals = [res.get('gcg_final'), res.get('scg_final'), res.get('ecg_final')]
-        active_indices = [i for i, s in enumerate(signals) if s is not None]
-        active_signals = [signals[i] for i in active_indices]
-
-        if not active_signals:
+        gcg_sig = res.get('gcg_final')
+        scg_sig = res.get('scg_final')
+        ecg_sig = res.get('ecg_final')
+        
+        # Jeśli brakuje SCG lub ECG, nie możemy trenować ani ewaluować na tym rekordzie
+        if scg_sig is None or ecg_sig is None:
             continue
+            
+        # Jeśli GCG jest brakujący (None), wypełniamy go zerami o kształcie SCG
+        if gcg_sig is None:
+            gcg_sig = np.zeros_like(scg_sig)
+            
+        signals = [gcg_sig, scg_sig, ecg_sig]
+        active_indices = [0, 1, 2]
+        active_signals = signals
 
         windows = extract_windows(
             active_signals,

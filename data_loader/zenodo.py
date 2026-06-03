@@ -102,7 +102,7 @@ class ZenodoMixin:
                     raw_fs = 1000.0 / avg_diff_ms
                     # Dopasowanie do najbliższej standardowej częstotliwości
                     fs = min(_STANDARD_FS, key=lambda x: abs(x - raw_fs))
-                    print(f"   -> Wykryte próbkowanie dla {record}: {fs} Hz (raw={raw_fs:.1f} Hz, Δt={avg_diff_ms:.2f} ms)")
+                    print(f"   -> Wykryte próbkowanie dla {record}: {fs} Hz (raw={raw_fs:.1f} Hz, dt={avg_diff_ms:.2f} ms)")
                 else:
                     print(f"   -> Ostrzeżenie: delta Timestamp = {avg_diff_ms} ms dla {record}. Zakładam 256 Hz.")
                 df.attrs['fs'] = fs

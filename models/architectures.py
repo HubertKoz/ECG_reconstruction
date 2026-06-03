@@ -148,25 +148,38 @@ class TransformerOnlyModel(nn.Module):
 
 class _TCNBlock(nn.Module):
     """
-    Jeden blok TCN: dilated causal conv → WeightNorm → ReLU → Dropout → residual.
-    Używa paddingu po lewej stronie (causal), aby model nie widział przyszłości.
+    Jeden blok TCN: dilated causal conv -> BatchNorm -> ReLU -> Dropout -> residual.
+    weight_norm usunieto - powoduje eksplozje NaN gdy ||v|| -> 0 przy dlugim treningu.
+    Zastapiono BatchNorm + Kaiming init dla stabilnosci numerycznej.
     """
     def __init__(self, in_ch, out_ch, kernel=3, dilation=1, dropout=0.1):
         super().__init__()
         pad = (kernel - 1) * dilation  # causal padding
-        self.conv1 = nn.utils.weight_norm(
-            nn.Conv1d(in_ch, out_ch, kernel, dilation=dilation, padding=pad))
-        self.conv2 = nn.utils.weight_norm(
-            nn.Conv1d(out_ch, out_ch, kernel, dilation=dilation, padding=pad))
-        self.drop = nn.Dropout(dropout)
-        self.skip = nn.Conv1d(in_ch, out_ch, 1) if in_ch != out_ch else nn.Identity()
-        self.pad = pad
+        self.conv1 = nn.Conv1d(in_ch, out_ch, kernel, dilation=dilation, padding=pad)
+        self.bn1   = nn.BatchNorm1d(out_ch)
+        self.conv2 = nn.Conv1d(out_ch, out_ch, kernel, dilation=dilation, padding=pad)
+        self.bn2   = nn.BatchNorm1d(out_ch)
+        self.drop  = nn.Dropout(dropout)
+        self.skip  = nn.Conv1d(in_ch, out_ch, 1) if in_ch != out_ch else nn.Identity()
+        self.pad   = pad
+
+        # Kaiming init - zapobiega eksplozji/zanikowi gradientu
+        nn.init.kaiming_normal_(self.conv1.weight, nonlinearity='relu')
+        nn.init.kaiming_normal_(self.conv2.weight, nonlinearity='relu')
+        nn.init.zeros_(self.conv1.bias)
+        nn.init.zeros_(self.conv2.bias)
 
     def forward(self, x):
-        # Causal: odcinamy nadmiarowe próbki z prawej
-        out = F.relu(self.conv1(x)[:, :, :-self.pad] if self.pad else self.conv1(x))
+        # Causal: odcinamy nadmiarowe probki z prawej
+        out = self.conv1(x)
+        if self.pad:
+            out = out[:, :, :-self.pad]
+        out = F.relu(self.bn1(out))
         out = self.drop(out)
-        out = F.relu(self.conv2(out)[:, :, :-self.pad] if self.pad else self.conv2(out))
+        out = self.conv2(out)
+        if self.pad:
+            out = out[:, :, :-self.pad]
+        out = F.relu(self.bn2(out))
         out = self.drop(out)
         return F.relu(out + self.skip(x))
 
@@ -268,6 +281,101 @@ class ResNet1DModel(nn.Module):
 
 
 # ---------------------------------------------------------------------------
+# 5. 1D U-Net z połączeniami omijającymi (Skip Connections)
+# ---------------------------------------------------------------------------
+
+class UNet1DModel(nn.Module):
+    """
+    Zaawansowana architektura U-Net 1D z skip connections dedykowana do 
+    ciągłej rekonstrukcji morfologii EKG z sygnałów SCG/GCG.
+    Obsługuje dynamiczny wymiar wejściowy (np. 1 dla standardu, 3 dla subband).
+    """
+    def __init__(self, input_dim=1, base_filters=32):
+        super().__init__()
+        
+        # --- ENKODER (Analiza lokalna i kompresja) ---
+        # Poziom 1: Blok wejściowy
+        self.enc1_pcg = nn.Sequential(nn.Conv1d(input_dim, base_filters, 7, padding=3), nn.BatchNorm1d(base_filters), nn.ReLU())
+        self.enc1_scg = nn.Sequential(nn.Conv1d(input_dim, base_filters, 7, padding=3), nn.BatchNorm1d(base_filters), nn.ReLU())
+        
+        # Poziom 2: Downsampling
+        self.down1 = nn.MaxPool1d(2) # Zmniejsza rozdzielczość czasową 2x
+        self.enc2 = nn.Sequential(
+            nn.Conv1d(base_filters * 2, base_filters * 4, 5, padding=2),
+            nn.BatchNorm1d(base_filters * 4),
+            nn.ReLU()
+        )
+        
+        # Poziom 3: Wąskie gardło (Bottleneck)
+        self.down2 = nn.MaxPool1d(2) # Zmniejsza rozdzielczość czasową 4x
+        self.bottleneck = nn.Sequential(
+            nn.Conv1d(base_filters * 4, base_filters * 8, 5, padding=2),
+            nn.BatchNorm1d(base_filters * 8),
+            nn.ReLU(),
+            nn.Conv1d(base_filters * 8, base_filters * 4, 5, padding=2),
+            nn.ReLU()
+        )
+        
+        # --- DEKODER (Rekonstrukcja fali) ---
+        # Up-convolution 1 (Z poziomu 3 do 2)
+        self.up1 = nn.ConvTranspose1d(base_filters * 4, base_filters * 4, kernel_size=2, stride=2)
+        self.dec1 = nn.Sequential(
+            nn.Conv1d(base_filters * 8, base_filters * 2, 5, padding=2),
+            nn.BatchNorm1d(base_filters * 2),
+            nn.ReLU()
+        )
+        
+        # Up-convolution 2 (Z poziomu 2 do 1)
+        self.up2 = nn.ConvTranspose1d(base_filters * 2, base_filters * 2, kernel_size=2, stride=2)
+        self.dec2 = nn.Sequential(
+            nn.Conv1d(base_filters * 4, base_filters, 5, padding=2),
+            nn.BatchNorm1d(base_filters),
+            nn.ReLU(),
+            nn.Conv1d(base_filters, 1, 3, padding=1) # Wyjście: [B, 1, T]
+        )
+
+    def forward(self, pcg, scg):
+        # Wejście: [B, T, C] -> [B, C, T]
+        p = pcg.permute(0, 2, 1)
+        s = scg.permute(0, 2, 1)
+        
+        # Enkoder - Poziom 1 (Lokalne cechy wejściowe)
+        e1_p = self.enc1_pcg(p)
+        e1_s = self.enc1_scg(s)
+        e1 = torch.cat([e1_p, e1_s], dim=1) # Fuzja modalności [B, base_filters * 2, T]
+        
+        # Enkoder - Poziom 2
+        e2_in = self.down1(e1)
+        e2 = self.enc2(e2_in) # Cechy [B, base_filters * 4, T // 2]
+        
+        # Bottleneck - Poziom 3
+        b_in = self.down2(e2)
+        b = self.bottleneck(b_in) # Globalny kontekst [B, base_filters * 4, T // 4]
+        
+        # Dekoder - Poziom 2 (Rekonstrukcja + Skip Connection)
+        u1 = self.up1(b)
+        
+        # Przycinanie długości na wypadek gdyby długość nie była podzielna przez 4
+        if u1.size(2) != e2.size(2):
+            u1 = F.interpolate(u1, size=e2.size(2), mode='linear', align_corners=False)
+            
+        d1_in = torch.cat([u1, e2], dim=1) 
+        d1 = self.dec1(d1_in)
+        
+        # Dekoder - Poziom 1
+        u2 = self.up2(d1)
+        
+        if u2.size(2) != e1.size(2):
+            u2 = F.interpolate(u2, size=e1.size(2), mode='linear', align_corners=False)
+            
+        d2_in = torch.cat([u2, e1], dim=1)
+        d2 = self.dec2(d2_in)
+        
+        # Powrót do formatu: [B, 1, T] -> [B, T, 1]
+        return d2.permute(0, 2, 1)
+
+
+# ---------------------------------------------------------------------------
 # Rejestr architektur
 # ---------------------------------------------------------------------------
 
@@ -277,6 +385,7 @@ ARCHITECTURE_REGISTRY = {
     'transformer_only':   TransformerOnlyModel,
     'tcn':                TCNModel,
     'resnet1d':           ResNet1DModel,
+    'unet1d':             UNet1DModel,
 }
 
 

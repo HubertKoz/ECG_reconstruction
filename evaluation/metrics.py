@@ -1,6 +1,14 @@
+import os
 import numpy as np
+import matplotlib
+matplotlib.use('Agg')  # Wyłącza blokujące okna GUI w konsoli CLI
 import matplotlib.pyplot as plt
 from scipy.signal import welch
+
+try:
+    from scipy.integrate import trapezoid
+except ImportError:
+    trapezoid = np.trapz
 
 
 # ---------------------------------------------------------------------------
@@ -79,9 +87,9 @@ def calculate_hrv_indices(r_peaks, fs=256):
         lf_mask  = (freqs >= 0.04)   & (freqs < 0.15)
         hf_mask  = (freqs >= 0.15)   & (freqs < 0.40)
 
-        vlf_ms2   = float(np.trapz(psd[vlf_mask], freqs[vlf_mask])) if vlf_mask.any() else 0.0
-        lf_ms2    = float(np.trapz(psd[lf_mask],  freqs[lf_mask]))  if lf_mask.any()  else 0.0
-        hf_ms2    = float(np.trapz(psd[hf_mask],  freqs[hf_mask]))  if hf_mask.any()  else 0.0
+        vlf_ms2   = float(trapezoid(psd[vlf_mask], freqs[vlf_mask])) if vlf_mask.any() else 0.0
+        lf_ms2    = float(trapezoid(psd[lf_mask],  freqs[lf_mask]))  if lf_mask.any()  else 0.0
+        hf_ms2    = float(trapezoid(psd[hf_mask],  freqs[hf_mask]))  if hf_mask.any()  else 0.0
         total_ms2 = vlf_ms2 + lf_ms2 + hf_ms2
         lf_hf     = (lf_ms2 / hf_ms2) if hf_ms2 > 0 else np.nan
 
@@ -162,9 +170,13 @@ def plot_reconstruction_quality(pred_ecg, gt_ecg, t, corr, record_name='', sampl
     axes[1].legend()
     axes[1].grid(True, alpha=0.3)
 
+    # Zoom na reprezentatywne okno 5 sekund (od 10.0 do 15.0 s), aby dokładnie pokazać kształt fali EKG
+    axes[0].set_xlim(10.0, min(15.0, t[-1]))
+
     plt.tight_layout()
     if save and record_name:
-        fname = f"reconstruction_quality_{record_name}_{sample_idx}.png"
+        os.makedirs("results", exist_ok=True)
+        fname = os.path.join("results", f"reconstruction_quality_{record_name}_{sample_idx}.png")
         plt.savefig(fname, dpi=150)
         print(f"  Zapisano: {fname}")
     plt.show()
@@ -212,7 +224,8 @@ def plot_hrv_comparison(t, ecg_full, disp_gt_peaks, scg_plot_norm, disp_pred_pea
     axes[2].grid(True, alpha=0.3)
 
     plt.tight_layout()
-    fname = f"hrv_eval_{record_name}.png"
+    os.makedirs("results", exist_ok=True)
+    fname = os.path.join("results", f"hrv_eval_{record_name}.png")
     plt.savefig(fname, dpi=150)
     plt.show()
     print(f"  Zapisano: {fname}")
@@ -262,7 +275,8 @@ def plot_poincare(r_peaks, fs=256, record_name='', save=True):
 
     plt.tight_layout()
     if save and record_name:
-        fname = f"poincare_{record_name}.png"
+        os.makedirs("results", exist_ok=True)
+        fname = os.path.join("results", f"poincare_{record_name}.png")
         plt.savefig(fname, dpi=150)
         print(f"  Zapisano: {fname}")
     plt.show()
@@ -313,7 +327,8 @@ def plot_hrv_spectrum(r_peaks, fs=256, record_name='', save=True):
 
     plt.tight_layout()
     if save and record_name:
-        fname = f"hrv_spectrum_{record_name}.png"
+        os.makedirs("results", exist_ok=True)
+        fname = os.path.join("results", f"hrv_spectrum_{record_name}.png")
         plt.savefig(fname, dpi=150)
         print(f"  Zapisano: {fname}")
     plt.show()

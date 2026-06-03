@@ -73,21 +73,32 @@ def minimal_pipeline(df, fs=256, epoch_sec=10, select_func=select_best_axis):
 
 def _wavelet_denoise(signal, wavelet='db4', level=4, mode='soft'):
     """
-    Denoise sygnału przez progowanie współczynników falkowych.
-    Wymaga pywt; jeśli niedostępne, zwraca sygnał po Savitzky-Golay.
+    Denoise sygnalu przez progowanie wspolczynnikow falkowych.
+    Wymaga pywt; jesli niedostepne, zwraca sygnal po Savitzky-Golay.
+    Zawiera NaN-guard: przy zdegenerowanym sygnale (zerowym, NaN) zwraca wejscie.
     """
+    # Zabezpieczenie przed NaN/inf w sygnale wejsciowym
+    if np.any(np.isnan(signal)) or np.any(np.isinf(signal)):
+        return signal
     try:
         import pywt
         coeffs = pywt.wavedec(signal, wavelet, level=level)
-        # Próg Donoho–Johnstone (universal threshold)
+        # Prog Donoho-Johnstone (universal threshold)
         sigma = np.median(np.abs(coeffs[-1])) / 0.6745
-        thr = sigma * np.sqrt(2 * np.log(len(signal)))
+        # Jesli sygnal jest bliski zeru (sigma~0), prog byloby 0 lub inf - omijamy
+        if sigma < 1e-10 or not np.isfinite(sigma):
+            return signal
+        thr = sigma * np.sqrt(2 * np.log(max(len(signal), 2)))
         coeffs[1:] = [pywt.threshold(c, thr, mode=mode) for c in coeffs[1:]]
         denoised = pywt.waverec(coeffs, wavelet)
-        # waverec może zwrócić o 1 próbkę więcej
-        return denoised[:len(signal)]
-    except ImportError:
-        # Fallback: Savitzky-Golay jako wygładzacz
+        # waverec moze zwrocic o 1 probke wiecej
+        denoised = denoised[:len(signal)]
+        # Ostateczne zabezpieczenie - jesli wynik ma NaN, zwroc oryginall
+        if np.any(np.isnan(denoised)) or np.any(np.isinf(denoised)):
+            return signal
+        return denoised
+    except (ImportError, Exception):
+        # Fallback: Savitzky-Golay jako wygladzacz
         return savitzky_golay_filter(signal, window_length=21, polyorder=3)
 
 
@@ -211,9 +222,122 @@ def robust_pipeline(df, fs=256, epoch_sec=10, select_func=select_best_axis):
     }
 
 
+# ---------------------------------------------------------------------------
+# 4. SUBBAND DECOMPOSITION PIPELINE
+# ---------------------------------------------------------------------------
+
+def subband_pipeline(df, fs=256, epoch_sec=10, select_func=select_best_axis):
+    """
+    Sub-band Decomposition Pipeline:
+    Rozbija sygnał mechaniczny na 3 pasma częstotliwości (low: 0.5-4Hz, mid: 4-10Hz, high: 10-20Hz)
+    za pomocą filtrów Butterwortha. Łączy te pasma jako kanały wejściowe do modelu (wymiar C=3).
+    Dzięki temu model regresyjny dostaje wprost separację fizjologiczną fal.
+    """
+    scg_raw, scg_info = select_func(df, ['SCG_X', 'SCG_Y', 'SCG_Z', 'SCG'])
+    gcg_raw, gcg_info = select_func(df, ['GCG_X', 'GCG_Y', 'GCG_Z', 'GCG'])
+
+    if scg_raw is None:
+        return None
+
+    print(f"[Subband Pipeline] SCG: {scg_info} | GCG: {gcg_info}")
+
+    ecg_raw = df['ECG_LA_RA'].values if 'ECG_LA_RA' in df.columns else (
+              df['ECG'].values if 'ECG' in df.columns else None)
+
+    # Wygładzenie i odszumienie EKG (standardowo)
+    ecg_bp = butter_bandpass(ecg_raw, fs, lowcut=0.5, highcut=40.0) if ecg_raw is not None else None
+
+    # Rozbicie SCG i GCG na pasma (filtrowanie asynchroniczne filtfilt bez przesunięć fazowych)
+    def decompose(signal, fs):
+        if signal is None:
+            return None
+        low  = butter_bandpass(signal, fs, lowcut=0.5, highcut=4.0)
+        mid  = butter_bandpass(signal, fs, lowcut=4.0, highcut=10.0)
+        high = butter_bandpass(signal, fs, lowcut=10.0, highcut=20.0)
+        # Zwracamy spakowany tensor [len, 3]
+        return np.stack([low, mid, high], axis=-1)
+
+    scg_bands = decompose(scg_raw, fs)
+    gcg_bands = decompose(gcg_raw, fs) if gcg_raw is not None else None
+
+    # Usuwanie artefaktów (na surowym filtrowanym sumarycznym lub na każdym z osobna; dla uproszczenia
+    # robimy detekcję artefaktów na całym sygnale filtrowanym 0.5-20 Hz i stosujemy maskę)
+    scg_full_bp = butter_bandpass(scg_raw, fs, lowcut=0.5, highcut=20.0)
+    scg_clean_full, scg_mask = remove_motion_artifacts(scg_full_bp, fs, epoch_sec=epoch_sec)
+
+    if gcg_raw is not None:
+        gcg_full_bp = butter_bandpass(gcg_raw, fs, lowcut=0.5, highcut=20.0)
+        gcg_clean_full, gcg_mask = remove_motion_artifacts(gcg_full_bp, fs, epoch_sec=epoch_sec)
+        clean_mask = scg_mask & gcg_mask
+    else:
+        clean_mask = scg_mask
+
+    # Interpolacja artefaktów na każdym z podpasm
+    n_samples_epoch = int(epoch_sec * fs)
+    def apply_mask_and_interpolate(bands, mask):
+        if bands is None:
+            return None
+        cleaned_bands = bands.copy().astype(float)
+        # remove_motion_artifacts interpoluje, możemy to zrobić prosto dla każdego kanału
+        # lub zasymulować interpolację liniową dla zanieczyszczonych epok
+        for chan in range(bands.shape[1]):
+            # Używamy pomocniczej metody dla pojedynczego pasma z maską
+            for i, is_clean in enumerate(mask):
+                if not is_clean:
+                    seg_start = i * n_samples_epoch
+                    seg_end = (i + 1) * n_samples_epoch
+                    left_val = cleaned_bands[seg_start - 1, chan] if seg_start > 0 else 0.0
+                    right_val = cleaned_bands[seg_end, chan] if seg_end < len(cleaned_bands) else 0.0
+                    cleaned_bands[seg_start:seg_end, chan] = np.linspace(left_val, right_val, seg_end - seg_start)
+        return cleaned_bands
+
+    scg_clean_bands = apply_mask_and_interpolate(scg_bands, clean_mask)
+    gcg_clean_bands = apply_mask_and_interpolate(gcg_bands, clean_mask)
+
+    # Detekcja uderzeń serca (robimy na różniczkowanej sumie pasm lub sumie filtrowanej)
+    scg_d = differentiate(scg_clean_full)
+    scg_peaks, _ = envelope_detection(scg_d, fs)
+    morph_peaks = morphological_detection(scg_d, fs)
+
+    # Normalizacja Z-score każdego kanału osobno na czystych próbkach
+    def normalize_bands_masked(bands, mask, n_samples):
+        if bands is None:
+            return None
+        norm_bands = bands.copy().astype(float)
+        mask_samples = np.zeros(len(bands), dtype=bool)
+        for i, is_clean in enumerate(mask):
+            if is_clean:
+                mask_samples[i * n_samples : (i + 1) * n_samples] = True
+        
+        for chan in range(bands.shape[1]):
+            clean_vals = bands[mask_samples, chan]
+            if len(clean_vals) == 0 or clean_vals.std() == 0:
+                mean_val = bands[:, chan].mean()
+                std_val = bands[:, chan].std() + 1e-8
+            else:
+                mean_val = clean_vals.mean()
+                std_val = clean_vals.std() + 1e-8
+            norm_bands[:, chan] = (bands[:, chan] - mean_val) / std_val
+        return norm_bands
+
+    scg_norm = normalize_bands_masked(scg_clean_bands, clean_mask, n_samples_epoch)
+    gcg_norm = normalize_bands_masked(gcg_clean_bands, clean_mask, n_samples_epoch) if gcg_clean_bands is not None else None
+    ecg_norm = normalize(ecg_bp) if ecg_bp is not None else None
+
+    return {
+        'scg_raw': scg_raw, 'gcg_raw': gcg_raw,
+        'scg_f': scg_bands, 'gcg_f': gcg_bands, 'scg_d': scg_clean_bands, 'gcg_d': gcg_clean_bands,
+        'scg_final': scg_norm, 'gcg_final': gcg_norm, 'ecg_final': ecg_norm,
+        'peaks_env': scg_peaks, 'peaks_morph': morph_peaks,
+        'clean_mask': clean_mask, 'epoch_sec': epoch_sec,
+        'scg_info': scg_info, 'gcg_info': gcg_info
+    }
+
+
 # Słownik wszystkich alternatywnych pipelinów (do importu w compare_all.py)
 ALTERNATIVE_PIPELINES = {
     'minimal': minimal_pipeline,
     'wavelet': wavelet_pipeline,
     'robust':  robust_pipeline,
+    'subband': subband_pipeline,
 }
