@@ -63,8 +63,8 @@ def validate_kaisti_method(detected_peaks, ecg_peaks, fs, window_ms=150):
 # --- GŁÓWNA PĘTLA WYKONAWCZA ---
 
 if __name__ == "__main__":
-    from preprocessing import Preprocessor
-    from data_loader import DataLoader
+    from dataset import Preprocessor
+    from dataset import DataLoader
     from scipy.signal import find_peaks
 
     loader = DataLoader()
@@ -72,10 +72,10 @@ if __name__ == "__main__":
 
     # 1. Przygotowanie danych
     kp = Preprocessor(fs=256)
-    results = kp.process_pipeline(df_ieee) # Twoje dane
+    results = kp.process_pipeline(df_ieee) # Dane wejściowe
     
     # 2. Pobieranie cech do ML (Amplitudy szczytów)
-    # Wykorzystujemy fragment Twojej funkcji morphological_detection
+    # Wykorzystanie fragmentu funkcji morphological_detection
     raw_signal = results['scg_final']
     candidate_peaks, props = find_peaks(raw_signal, distance=int(0.4 * 256), height=np.mean(raw_signal))
     heights = props['peak_heights'].reshape(-1, 1)
@@ -89,7 +89,7 @@ if __name__ == "__main__":
     final_detected_peaks = candidate_peaks[is_beat_mask]
 
     # 5. WALIDACJA (Porównanie z EKG)
-    # Zakładamy, że masz ecg_peaks wyciągnięte z results['ecg_final']
+    # Założenie, że ecg_peaks zostały wyodrębnione z results['ecg_final']
     ecg_peaks, _ = find_peaks(results['ecg_final'], distance=int(0.5 * 256), height=1.0)
     
     metrics = validate_kaisti_method(final_detected_peaks, ecg_peaks, fs=256)

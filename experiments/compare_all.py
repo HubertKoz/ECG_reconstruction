@@ -40,8 +40,8 @@ _ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
-from preprocessing.pipelines import kaisti_pipeline, advanced_filtering_pipeline, aggregate_and_balance_datasets
-from preprocessing.alternative_pipelines import ALTERNATIVE_PIPELINES
+from pipelines import kaisti_pipeline, advanced_filtering_pipeline, aggregate_and_balance_datasets
+from pipelines import ALTERNATIVE_PIPELINES
 from models.architectures import ARCHITECTURE_REGISTRY, count_parameters
 
 # ── Konfiguracja ─────────────────────────────────────────────────────────────
@@ -121,7 +121,7 @@ def load_real_data(data_dir, pipeline_name, pipeline_fn, seq_len=SEQ_LEN):
     Zwraca (pcg_arr, scg_arr, ecg_arr) lub None jeśli brak danych.
     """
     try:
-        from data_loader import DataLoader as ECGDataLoader
+        from dataset import DataLoader as ECGDataLoader
         loader = ECGDataLoader(base_data_dir=data_dir)
 
         all_dfs = []
@@ -281,7 +281,7 @@ def run_comparison(
     os.makedirs(RUNS_DIR, exist_ok=True)
 
     summary_path = os.path.join(RESULTS_DIR, 'comparison_summary.json')
-    # Wczytaj istniejące wyniki (resume po crash)
+    # Wczytanie istniejących wyników (wznowienie po awarii/crashu)
     if os.path.exists(summary_path):
         with open(summary_path, 'r') as f:
             summary = json.load(f)

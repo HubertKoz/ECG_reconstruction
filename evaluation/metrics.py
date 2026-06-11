@@ -147,10 +147,10 @@ def plot_reconstruction(time_axis, valid_scg, valid_pcg, target_ecg, pred_ecg, c
     plt.legend()
 
     plt.tight_layout()
-    plt.show()
+    plt.close()
 
 
-def plot_reconstruction_quality(pred_ecg, gt_ecg, t, corr, record_name='', sample_idx=0, save=True):
+def plot_reconstruction_quality(pred_ecg, gt_ecg, t, corr, record_name='', sample_idx=0, save=True, output_dir='results'):
     """
     Overlay zrekonstruowanego EKG z ground truth + błąd bezwzględny.
     Korelacja Pearsona wyświetlana w tytule.
@@ -175,14 +175,14 @@ def plot_reconstruction_quality(pred_ecg, gt_ecg, t, corr, record_name='', sampl
 
     plt.tight_layout()
     if save and record_name:
-        os.makedirs("results", exist_ok=True)
-        fname = os.path.join("results", f"reconstruction_quality_{record_name}_{sample_idx}.png")
+        os.makedirs(output_dir, exist_ok=True)
+        fname = os.path.join(output_dir, f"reconstruction_quality_{sample_idx}.png")
         plt.savefig(fname, dpi=150)
         print(f"  Zapisano: {fname}")
-    plt.show()
+    plt.close()
 
 
-def plot_hrv_comparison(t, ecg_full, disp_gt_peaks, scg_plot_norm, disp_pred_peaks, record_name, fs=256):
+def plot_hrv_comparison(t, ecg_full, disp_gt_peaks, scg_plot_norm, disp_pred_peaks, record_name, fs=256, output_dir='results'):
     """Trzy subploty: GT ECG z pikami, SCG z predykcjami, synchronizacja pików."""
     fig, axes = plt.subplots(3, 1, figsize=(14, 10), sharex=True)
 
@@ -224,14 +224,14 @@ def plot_hrv_comparison(t, ecg_full, disp_gt_peaks, scg_plot_norm, disp_pred_pea
     axes[2].grid(True, alpha=0.3)
 
     plt.tight_layout()
-    os.makedirs("results", exist_ok=True)
-    fname = os.path.join("results", f"hrv_eval_{record_name}.png")
+    os.makedirs(output_dir, exist_ok=True)
+    fname = os.path.join(output_dir, "hrv_eval.png")
     plt.savefig(fname, dpi=150)
-    plt.show()
+    plt.close()
     print(f"  Zapisano: {fname}")
 
 
-def plot_poincare(r_peaks, fs=256, record_name='', save=True):
+def plot_poincare(r_peaks, fs=256, record_name='', save=True, output_dir='results', label='', suffix=''):
     """
     Wykres Poincaré: RR[n] vs RR[n+1].
     Elipsa z SD1 (krótka oś) i SD2 (długa oś) wizualizuje zmienność rytmu.
@@ -259,7 +259,8 @@ def plot_poincare(r_peaks, fs=256, record_name='', save=True):
     ax.scatter(rr_n, rr_n1, s=10, alpha=0.5, color='steelblue', label='Punkty RR')
     ax.set_xlabel("RR[n] [ms]")
     ax.set_ylabel("RR[n+1] [ms]")
-    title = f"Wykres Poincaré  {record_name}" if record_name else "Wykres Poincaré"
+    _lbl = label or record_name
+    title = f"Wykres Poincaré  {_lbl}" if _lbl else "Wykres Poincaré"
     ax.set_title(f"{title}\nSD1 = {sd1:.1f} ms  |  SD2 = {sd2:.1f} ms")
     ax.set_aspect('equal')
     ax.grid(True, alpha=0.3)
@@ -274,15 +275,16 @@ def plot_poincare(r_peaks, fs=256, record_name='', save=True):
     ax.legend()
 
     plt.tight_layout()
-    if save and record_name:
-        os.makedirs("results", exist_ok=True)
-        fname = os.path.join("results", f"poincare_{record_name}.png")
+    if save:
+        os.makedirs(output_dir, exist_ok=True)
+        _sfx = f"_{suffix}" if suffix else ""
+        fname = os.path.join(output_dir, f"poincare{_sfx}.png")
         plt.savefig(fname, dpi=150)
         print(f"  Zapisano: {fname}")
-    plt.show()
+    plt.close()
 
 
-def plot_hrv_spectrum(r_peaks, fs=256, record_name='', save=True):
+def plot_hrv_spectrum(r_peaks, fs=256, record_name='', save=True, output_dir='results', label='', suffix=''):
     """
     Gęstość widmowa mocy (PSD) sygnału RR z zaznaczonymi pasmami VLF/LF/HF.
     """
@@ -320,15 +322,17 @@ def plot_hrv_spectrum(r_peaks, fs=256, record_name='', save=True):
     ax.set_xlim(0, 0.5)
     ax.set_xlabel("Częstotliwość [Hz]")
     ax.set_ylabel("PSD [ms²/Hz]")
-    title = f"Widmo HRV (Welch PSD)  {record_name}" if record_name else "Widmo HRV (Welch PSD)"
+    _lbl = label or record_name
+    title = f"Widmo HRV (Welch PSD)  {_lbl}" if _lbl else "Widmo HRV (Welch PSD)"
     ax.set_title(title)
     ax.legend()
     ax.grid(True, alpha=0.3)
 
     plt.tight_layout()
-    if save and record_name:
-        os.makedirs("results", exist_ok=True)
-        fname = os.path.join("results", f"hrv_spectrum_{record_name}.png")
+    if save:
+        os.makedirs(output_dir, exist_ok=True)
+        _sfx = f"_{suffix}" if suffix else ""
+        fname = os.path.join(output_dir, f"hrv_spectrum{_sfx}.png")
         plt.savefig(fname, dpi=150)
         print(f"  Zapisano: {fname}")
-    plt.show()
+    plt.close()

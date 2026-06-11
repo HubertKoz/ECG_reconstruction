@@ -43,7 +43,7 @@ def extract_r_peaks(ecg_signal: np.ndarray, fs: float = 256.0) -> np.ndarray:
     integrated = np.convolve(squared, window, mode='same')
     
     # 5. Znajdowanie szczytów
-    # Minimalny odstęp między uderzeniami: powiedzmy 300 ms (tętno maks ~200 BPM)
+    # Minimalny odstęp między uderzeniami: np. 300 ms (tętno maks ~200 BPM)
     min_distance = int(0.3 * fs)
     
     # Próg minimalnej amplitudy zintegrowanego sygnału (adaptacyjny)
@@ -54,7 +54,7 @@ def extract_r_peaks(ecg_signal: np.ndarray, fs: float = 256.0) -> np.ndarray:
     # Przesunięcie lokalizacji piku z powrotem na największą wartość z oryginalnego filtrowanego EKG
     # (ze względu na bezwładność filtra i całki okna, pik zespolony mógł się przesunąć o parę ms).
     refined_peaks = []
-    search_window = int(0.1 * fs) # szukaj lokalnego ekstremum w okienkach +/- 100 ms
+    search_window = int(0.1 * fs) # Wyszukiwanie lokalnego ekstremum w oknach +/- 100 ms
     for p in peaks:
         start = max(0, p - search_window)
         end = min(len(filtered), p + search_window)

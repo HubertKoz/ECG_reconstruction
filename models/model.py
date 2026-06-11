@@ -17,8 +17,8 @@ class ECGReconstructionModel(nn.Module):
         # Projekcja na wymiar Transformera
         self.feature_projection = nn.Linear(combined_dim, hidden_dim)
 
-        # Wyuczalny positional encoding (max 1000 próbek)
-        self.pos_embedding = nn.Parameter(torch.randn(1, 1000, hidden_dim))
+        # Wyuczalny positional encoding (max 2000 próbek)
+        self.pos_embedding = nn.Parameter(torch.randn(1, 2000, hidden_dim))
 
         encoder_layer = nn.TransformerEncoderLayer(
             d_model=hidden_dim,
@@ -149,8 +149,8 @@ if __name__ == "__main__":
         plt.show()
     # =========================================================================================
 
-    # --- ZAKOMENTUJ / WYTNIJ tę sekcję PONIŻEJ gdy odkomentujesz właściwy kod wyżej ---
-    # num_samples = 320 # Możesz tu wpisać więcej dla lepszego sprawdzenia
+    # --- Sekcja do zakomentowania lub usunięcia po odkomentowaniu właściwego kodu powyżej ---
+    # num_samples = 320 # Można tu wpisać większą wartość dla dokładniejszej weryfikacji
     # ...
     # -----------------------------------------------------------------------------------
 
@@ -158,7 +158,7 @@ if __name__ == "__main__":
     val_size = num_samples - train_size
     train_dataset, val_dataset = torch.utils.data.random_split(dataset, [train_size, val_size])
 
-    # Tworzymy DataLoadery, które teraz posłużą w pętli
+    # Tworzenie DataLoaderów na potrzeby pętli
     train_loader = TorchDataLoader(train_dataset, batch_size=batch_size, shuffle=True)
     val_loader = TorchDataLoader(val_dataset, batch_size=batch_size, shuffle=False)
 

@@ -286,28 +286,28 @@ class ResNet1DModel(nn.Module):
 
 class UNet1DModel(nn.Module):
     """
-    Zaawansowana architektura U-Net 1D z skip connections dedykowana do 
+    Zaawansowana architektura U-Net 1D z skip connections dedykowana do
     ciągłej rekonstrukcji morfologii EKG z sygnałów SCG/GCG.
     Obsługuje dynamiczny wymiar wejściowy (np. 1 dla standardu, 3 dla subband).
     """
     def __init__(self, input_dim=1, base_filters=32):
         super().__init__()
-        
+
         # --- ENKODER (Analiza lokalna i kompresja) ---
         # Poziom 1: Blok wejściowy
         self.enc1_pcg = nn.Sequential(nn.Conv1d(input_dim, base_filters, 7, padding=3), nn.BatchNorm1d(base_filters), nn.ReLU())
         self.enc1_scg = nn.Sequential(nn.Conv1d(input_dim, base_filters, 7, padding=3), nn.BatchNorm1d(base_filters), nn.ReLU())
-        
+
         # Poziom 2: Downsampling
-        self.down1 = nn.MaxPool1d(2) # Zmniejsza rozdzielczość czasową 2x
+        self.down1 = nn.MaxPool1d(2)
         self.enc2 = nn.Sequential(
             nn.Conv1d(base_filters * 2, base_filters * 4, 5, padding=2),
             nn.BatchNorm1d(base_filters * 4),
             nn.ReLU()
         )
-        
+
         # Poziom 3: Wąskie gardło (Bottleneck)
-        self.down2 = nn.MaxPool1d(2) # Zmniejsza rozdzielczość czasową 4x
+        self.down2 = nn.MaxPool1d(2)
         self.bottleneck = nn.Sequential(
             nn.Conv1d(base_filters * 4, base_filters * 8, 5, padding=2),
             nn.BatchNorm1d(base_filters * 8),
@@ -315,80 +315,134 @@ class UNet1DModel(nn.Module):
             nn.Conv1d(base_filters * 8, base_filters * 4, 5, padding=2),
             nn.ReLU()
         )
-        
+
         # --- DEKODER (Rekonstrukcja fali) ---
-        # Up-convolution 1 (Z poziomu 3 do 2)
         self.up1 = nn.ConvTranspose1d(base_filters * 4, base_filters * 4, kernel_size=2, stride=2)
         self.dec1 = nn.Sequential(
             nn.Conv1d(base_filters * 8, base_filters * 2, 5, padding=2),
             nn.BatchNorm1d(base_filters * 2),
             nn.ReLU()
         )
-        
-        # Up-convolution 2 (Z poziomu 2 do 1)
+
         self.up2 = nn.ConvTranspose1d(base_filters * 2, base_filters * 2, kernel_size=2, stride=2)
         self.dec2 = nn.Sequential(
             nn.Conv1d(base_filters * 4, base_filters, 5, padding=2),
             nn.BatchNorm1d(base_filters),
             nn.ReLU(),
-            nn.Conv1d(base_filters, 1, 3, padding=1) # Wyjście: [B, 1, T]
+            nn.Conv1d(base_filters, 1, 3, padding=1)
         )
 
     def forward(self, pcg, scg):
-        # Wejście: [B, T, C] -> [B, C, T]
         p = pcg.permute(0, 2, 1)
         s = scg.permute(0, 2, 1)
-        
-        # Enkoder - Poziom 1 (Lokalne cechy wejściowe)
+
         e1_p = self.enc1_pcg(p)
         e1_s = self.enc1_scg(s)
-        e1 = torch.cat([e1_p, e1_s], dim=1) # Fuzja modalności [B, base_filters * 2, T]
-        
-        # Enkoder - Poziom 2
+        e1 = torch.cat([e1_p, e1_s], dim=1)
+
         e2_in = self.down1(e1)
-        e2 = self.enc2(e2_in) # Cechy [B, base_filters * 4, T // 2]
-        
-        # Bottleneck - Poziom 3
+        e2 = self.enc2(e2_in)
+
         b_in = self.down2(e2)
-        b = self.bottleneck(b_in) # Globalny kontekst [B, base_filters * 4, T // 4]
-        
-        # Dekoder - Poziom 2 (Rekonstrukcja + Skip Connection)
+        b = self.bottleneck(b_in)
+
         u1 = self.up1(b)
-        
-        # Przycinanie długości na wypadek gdyby długość nie była podzielna przez 4
         if u1.size(2) != e2.size(2):
             u1 = F.interpolate(u1, size=e2.size(2), mode='linear', align_corners=False)
-            
-        d1_in = torch.cat([u1, e2], dim=1) 
+        d1_in = torch.cat([u1, e2], dim=1)
         d1 = self.dec1(d1_in)
-        
-        # Dekoder - Poziom 1
+
         u2 = self.up2(d1)
-        
         if u2.size(2) != e1.size(2):
             u2 = F.interpolate(u2, size=e1.size(2), mode='linear', align_corners=False)
-            
         d2_in = torch.cat([u2, e1], dim=1)
         d2 = self.dec2(d2_in)
-        
-        # Powrót do formatu: [B, 1, T] -> [B, T, 1]
+
         return d2.permute(0, 2, 1)
 
 
 # ---------------------------------------------------------------------------
+# 6. ECGReconstructionModelV2 – BiLSTM + Transformer z sinusoidalnym PE
+# ---------------------------------------------------------------------------
+
+class ECGReconstructionModelV2(nn.Module):
+    """
+    Klon ECGReconstructionModel (v1) z jedyną zmianą:
+      - pos_embedding (nn.Parameter) inicjalizowany sinusoidalnie zamiast losowo.
+
+    Hipoteza: losowa inicjalizacja PE w v1 może zapamiętać strukturę czasową
+    specyficzną dla pacjenta treningowego. Inicjalizacja sinusoidalna daje
+    bardziej neutralny punkt startowy z deterministyczną strukturą pozycyjną.
+
+    Dlaczego NIE fixed sinusoidal PE (register_buffer):
+      Czyste sinusoidalne PE jest identyczne dla każdej próbki wejściowej.
+      Na początku treningu uwaga Transformera jest zdominowana przez PE
+      i staje się niezależna od treści LSTM → gradient do LSTM jest bliski
+      zeru → model nie uczy się. nn.Parameter (nawet z init sinusoidalnym)
+      dostaje gradient bezpośrednio i odblokowuje uczenie LSTM.
+
+    Wszystko identyczne z v1 poza inicjalizacją PE.
+    """
+    def __init__(self, input_dim=1, hidden_dim=128, nhead=8, num_layers=4,
+                 max_len=2000):
+        super().__init__()
+
+        self.lstm_pcg = nn.LSTM(input_dim, hidden_dim, num_layers=2, bidirectional=True,
+                                batch_first=True, dropout=0.2)
+        self.lstm_scg = nn.LSTM(input_dim, hidden_dim, num_layers=2, bidirectional=True,
+                                batch_first=True, dropout=0.2)
+
+        combined_dim = hidden_dim * 2 * 2
+        self.feature_projection = nn.Linear(combined_dim, hidden_dim)
+
+        # PE inicjalizowany sinusoidalnie, ale TRENOWALNY (nn.Parameter)
+        # → dostaje gradient → odblokowuje uczenie LSTM
+        # → startuje z deterministyczną strukturą zamiast losowego szumu
+        pe = torch.zeros(max_len, hidden_dim)
+        pos = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
+        div = torch.exp(torch.arange(0, hidden_dim, 2).float()
+                        * (-math.log(10000.0) / hidden_dim))
+        pe[:, 0::2] = torch.sin(pos * div)
+        pe[:, 1::2] = torch.cos(pos * div)
+        self.pos_embedding = nn.Parameter(pe.unsqueeze(0))  # [1, max_len, hidden_dim]
+
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model=hidden_dim, nhead=nhead,
+            dim_feedforward=hidden_dim * 4, dropout=0.1,
+            batch_first=True
+        )
+        self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
+
+        self.decoder = nn.Sequential(
+            nn.Linear(hidden_dim, 64),
+            nn.ReLU(),
+            nn.Linear(64, 1)
+        )
+
+    def forward(self, pcg, scg):
+        pcg_feat, _ = self.lstm_pcg(pcg)
+        scg_feat, _ = self.lstm_scg(scg)
+        combined = torch.cat((pcg_feat, scg_feat), dim=2)
+        x = self.feature_projection(combined)
+        x = x + self.pos_embedding[:, :x.size(1), :]
+        x = self.transformer_encoder(x)
+        return self.decoder(x)
+
+
 # Rejestr architektur
 # ---------------------------------------------------------------------------
 
 ARCHITECTURE_REGISTRY = {
-    'bilstm_transformer': ECGReconstructionModel,
-    'cnn_bilstm':         CNNBiLSTMModel,
-    'transformer_only':   TransformerOnlyModel,
-    'tcn':                TCNModel,
-    'resnet1d':           ResNet1DModel,
-    'unet1d':             UNet1DModel,
+    'bilstm_transformer':     ECGReconstructionModel,
+    'bilstm_transformer_pca': ECGReconstructionModel,   # alias — ta sama architektura, inny pipeline
+    'cnn_bilstm':             CNNBiLSTMModel,
+    'transformer_only':       TransformerOnlyModel,
+    'tcn':                    TCNModel,
+    'resnet1d':               ResNet1DModel,
+    'unet1d':                 UNet1DModel,
+    'bilstm_transformer_v2':  ECGReconstructionModelV2,
 }
 
 
 def count_parameters(model: nn.Module) -> int:
     """Zwraca liczbę trenowalnych parametrów modelu."""
-    return sum(p.numel() for p in model.parameters() if p.requires_grad)
